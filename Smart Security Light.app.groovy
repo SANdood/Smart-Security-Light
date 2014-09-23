@@ -50,7 +50,8 @@ preferences {
 	}
 	section ("Overrides") {
 		input "physicalOverride", "bool", title: "Physical override?", required: true, defaultValue: false
-		input "doubleTapOn", "bool", title: "Double-Tap ON override?", required: true, defaultValue: true
+		paragraph "Double-tap ON to lock light on; OFF to lock it off"
+        input "doubleTapOn", "bool", title: "Double-Tap ON override?", required: true, defaultValue: true
 		input "doubleTapOff", "bool", title: "Double-Tap OFF override?", required: true, defaultValue: true
 	}
 }
@@ -98,21 +99,24 @@ def initialize() {
 }
 
 def lightsOnHandler(evt) {
+	log.debug "lightsOnHandler: $evt.name: $evt.value"
 	if (evt.isPhysical()) {
 		state.physical = true
 	}
 }
 
 def lightsOffHandler(evt) {
+	log.debug "lightsOffHandler: $evt.name: $evt.value"
 //	if (evt.isPhysical()) {
 		state.physical = false
 //	}
 }
  
 def switchHandler(evt) {
+	log.debug "switchHandler: $evt.name: $evt.value"
 	// use Event rather than DeviceState because we may be changing DeviceState to only store changed values
 	def recentStates = light.eventsSince(new Date(now() - 4000), [all:true, max: 10]).findAll{it.name == "switch"}
-	log.debug "${recentStates?.size()} STATES FOUND, LAST AT ${recentStates ? recentStates[0].dateCreated : ''}"
+	log.debug "${recentStates?.size()} states found, last at ${recentStates ? recentStates[0].dateCreated : ''}"
 
 	if (evt.isPhysical()) {
 		if (evt.value == "on") {
@@ -154,7 +158,7 @@ private lastTwoStatesWere(value, states, evt) {
 }
 
 def motionHandler(evt) {
-	log.debug "$evt.name: $evt.value"
+	log.debug "motionHandler: $evt.name: $evt.value"
 
 	if (state.physical) { return}	// ignore motion if lights were most recently turned on manually
 
