@@ -25,7 +25,7 @@ definition(
 
 preferences {
 	section("Control these lights..."){
-		input "lights", "capability.switch", multiple: false
+		input "light", "capability.switch", multiple: false
 	}
 	section("Turning on when it's dark and there's movement..."){
 		input "motionSensor", "capability.motionSensor", title: "Where?"
@@ -47,8 +47,10 @@ preferences {
 	section ("Zip code (optional, defaults to location coordinates when location services are enabled)...") {
 		input "zipCode", "text", required: false
 	}
-   	section ("Enable physical override") {
+   	section ("Overrides") {
     	input "physicalOverride", "bool", title: "Physical override?", required: true, defaultValue: false
+    	input "doubleTapOn", "bool", title: "Double-Tap ON override?", required: true, defaultValue: true
+    	input "doubleTapOff", "bool", titleL "Double-Tap OFF override?", required: true, defaultValue: true
     }
 }
 
@@ -64,13 +66,22 @@ def updated() {
 
 def initialize() {
 	subscribe(motionSensor, "motion", motionHandler)
-    subscribe(lights, "switch.on", lightsOnHandler)
-    subscribe(lights, "switch.off", lightsOffHandler)
-    if (lights.latestValue( "switch" ) == "on") {
+	
+	if (physicalOverride) {
+    	subscribe(light, "switch.on", lightsOnHandler)
+    	subscribe(light, "switch.off", lightsOffHandler)
+	}
+	if (doubleTapOn || doubleTapOff) {
+    	subscribe(light, "switch", switchHandler, [filterEvents: false])
+	}
+    
+    if (light.latestValue( "switch" ) == "on") {
     	state.physical = true
+    	state.lastStatus = "on"
     }
     else {
     	state.physical = false
+    	state.lastStatus = "off"
     }
     
 	if (lightSensor) {
@@ -97,6 +108,49 @@ def lightsOffHandler(evt) {
 //    }
 }
  
+def switchHandler(evt) {
+	// use Event rather than DeviceState because we may be changing DeviceState to only store changed values
+	def recentStates = light.eventsSince(new Date(now() - 4000), [all:true, max: 10]).findAll{it.name == "switch"}
+	log.debug "${recentStates?.size()} STATES FOUND, LAST AT ${recentStates ? recentStates[0].dateCreated : ''}"
+
+	if (evt.isPhysical()) {
+		if (evt.value == "on") {
+			if (state.lastStatus == "off")) {
+				state.physical = true								// Manual on BEFORE motion on
+			}
+			else if (lastTwoStatesWere("on", recentStates, evt)) {
+               	log.debug "detected two taps, override motion"
+           		state.physical = true								// Manual override of PRIOR motion on
+			}
+        } 
+        else if (evt.value == "off") {
+        	state.physical = false									// Somebody turned off the light
+        	if (lastTwoStatesWere("off", recentStates, evt)) {
+            	log.debug "detected two taps, shutting off"
+            														// Double tap means "Keep off until..."
+        	}
+        }
+	}
+}
+
+private lastTwoStatesWere(value, states, evt) {
+    def result = false
+    if (states) {
+        log.trace "unfiltered: [${states.collect{it.dateCreated + ':' + it.value}.join(', ')}]"
+        def onOff = states.findAll { it.isPhysical() || !it.type }
+        log.trace "filtered:   [${onOff.collect{it.dateCreated + ':' + it.value}.join(', ')}]"
+
+        // This test was needed before the change to use Event rather than DeviceState. It should never pass now.
+        if (onOff[0].date.before(evt.date)) {
+            log.warn "Last state does not reflect current event, evt.date: ${evt.dateCreated}, state.date: ${onOff[0].dateCreated}"
+            result = evt.value == value && onOff[0].value == value
+        }
+        else {
+            result = onOff.size() > 1 && onOff[0].value == value && onOff[1].value == value
+        }
+    }
+    result
+}
 
 def motionHandler(evt) {
 	log.debug "$evt.name: $evt.value"
@@ -105,8 +159,8 @@ def motionHandler(evt) {
 
 	if (evt.value == "active") {
 		if (enabled()) {
-			log.debug "turning on lights due to motion"
-			lights.on()
+			log.debug "turning on light due to motion"
+			light.on()
 			state.lastStatus = "on"
 		}
 		state.motionStopTime = null
@@ -126,7 +180,7 @@ def illuminanceHandler(evt) {
 
 	def lastStatus = state.lastStatus					// its getting light now, we can turn off
 	if (lastStatus != "off" && evt.integerValue > 50) {	// whether or not it was manually turned on
-		lights.off()
+		light.off()
 		state.lastStatus = "off"
         state.physical = false
 	}
@@ -136,17 +190,16 @@ def illuminanceHandler(evt) {
 		if (lastStatus != "off") {
 			def elapsed = now() - state.motionStopTime
 			if (elapsed >= (delayMinutes ?: 0) * 60000L) {
-				lights.off()
+				light.off()
 				state.lastStatus = "off"
 			}
 		}
 	}
 	else if (lastStatus != "on" && evt.value < 30) {
 		if ( state.physical ) { return }				// light already manually on
-        lights.on()
+        light.on()
 		state.lastStatus = "on"
         state.physical = false							// we turned them on...
-        
 	}
 }
 
@@ -158,7 +211,7 @@ def turnOffMotionAfterDelay() {
 	if (state.motionStopTime && state.lastStatus != "off") {
 		def elapsed = now() - state.motionStopTime
 		if (elapsed >= (delayMinutes ?: 0) * 60000L) {
-			lights.off()
+			light.off()
 			state.lastStatus = "off"
 		}
 	}
@@ -195,4 +248,3 @@ private getSunriseOffset() {
 private getSunsetOffset() {
 	sunsetOffsetValue ? (sunsetOffsetDir == "Before" ? "-$sunsetOffsetValue" : sunsetOffsetValue) : null
 }
-
