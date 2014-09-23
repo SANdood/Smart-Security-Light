@@ -51,7 +51,7 @@ preferences {
 	section ("Overrides") {
 		input "physicalOverride", "bool", title: "Physical override?", required: true, defaultValue: false
 		input "doubleTapOn", "bool", title: "Double-Tap ON override?", required: true, defaultValue: true
-		input "doubleTapOff", "bool", titleL "Double-Tap OFF override?", required: true, defaultValue: true
+		input "doubleTapOff", "bool", title: "Double-Tap OFF override?", required: true, defaultValue: true
 	}
 }
 
@@ -106,7 +106,7 @@ def lightsOnHandler(evt) {
 def lightsOffHandler(evt) {
 //	if (evt.isPhysical()) {
 		state.physical = false
-/	}
+//	}
 }
  
 def switchHandler(evt) {
@@ -116,7 +116,7 @@ def switchHandler(evt) {
 
 	if (evt.isPhysical()) {
 		if (evt.value == "on") {
-			if (state.lastStatus == "off")) {
+			if (state.lastStatus == "off") {
 				state.physical = true								// Manual on BEFORE motion on
 			}
 			else if (lastTwoStatesWere("on", recentStates, evt)) {
