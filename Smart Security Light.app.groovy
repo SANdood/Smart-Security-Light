@@ -10,6 +10,7 @@
  *		2014/09/23		Added support for physical override:
  *						*	If lights turned on manually, don't turn them off if motion stops
  *														  but DO turn them off at sunrise (in case the are forgotten)
+  *						*	Double-tap ON will stop the motion-initiated timed Off event
  *
  *
  */
@@ -168,6 +169,7 @@ def motionHandler(evt) {
 	else {
 		state.motionStopTime = now()
 		if(delayMinutes) {
+			unschedule(turnOffMotionAfterDelay)
 			runIn(delayMinutes*60, turnOffMotionAfterDelay, [overwrite: false])
 		} else {
 			turnOffMotionAfterDelay()
