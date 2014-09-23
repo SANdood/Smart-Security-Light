@@ -14,13 +14,13 @@
  *
  */
 definition(
-    name: "Smart Security Light",
-    namespace: "smartthings",
-    author: "SmartThings & Barry Burke",
-    description: "Turns on lights when it's dark and motion is detected.  Turns lights off when it becomes light or some time after motion ceases. Optionally allows for manual override.",
-    category: "Convenience",
-    iconUrl: "https://s3.amazonaws.com/smartapp-icons/Meta/light_motion-outlet-luminance.png",
-    iconX2Url: "https://s3.amazonaws.com/smartapp-icons/Meta/light_motion-outlet-luminance@2x.png"
+	name: "Smart Security Light",
+	namespace: "smartthings",
+	author: "SmartThings & Barry Burke",
+	description: "Turns on lights when it's dark and motion is detected.  Turns lights off when it becomes light or some time after motion ceases. Optionally allows for manual override.",
+	category: "Convenience",
+	iconUrl: "https://s3.amazonaws.com/smartapp-icons/Meta/light_motion-outlet-luminance.png",
+	iconX2Url: "https://s3.amazonaws.com/smartapp-icons/Meta/light_motion-outlet-luminance@2x.png"
 )
 
 preferences {
@@ -47,11 +47,11 @@ preferences {
 	section ("Zip code (optional, defaults to location coordinates when location services are enabled)...") {
 		input "zipCode", "text", required: false
 	}
-   	section ("Overrides") {
-    	input "physicalOverride", "bool", title: "Physical override?", required: true, defaultValue: false
-    	input "doubleTapOn", "bool", title: "Double-Tap ON override?", required: true, defaultValue: true
-    	input "doubleTapOff", "bool", titleL "Double-Tap OFF override?", required: true, defaultValue: true
-    }
+	section ("Overrides") {
+		input "physicalOverride", "bool", title: "Physical override?", required: true, defaultValue: false
+		input "doubleTapOn", "bool", title: "Double-Tap ON override?", required: true, defaultValue: true
+		input "doubleTapOff", "bool", titleL "Double-Tap OFF override?", required: true, defaultValue: true
+	}
 }
 
 def installed() {
@@ -68,22 +68,22 @@ def initialize() {
 	subscribe(motionSensor, "motion", motionHandler)
 	
 	if (physicalOverride) {
-    	subscribe(light, "switch.on", lightsOnHandler)
-    	subscribe(light, "switch.off", lightsOffHandler)
+		subscribe(light, "switch.on", lightsOnHandler)
+		subscribe(light, "switch.off", lightsOffHandler)
 	}
 	if (doubleTapOn || doubleTapOff) {
-    	subscribe(light, "switch", switchHandler, [filterEvents: false])
+		subscribe(light, "switch", switchHandler, [filterEvents: false])
 	}
-    
-    if (light.latestValue( "switch" ) == "on") {
-    	state.physical = true
-    	state.lastStatus = "on"
-    }
-    else {
-    	state.physical = false
-    	state.lastStatus = "off"
-    }
-    
+
+	if (light.latestValue( "switch" ) == "on") {
+		state.physical = true
+		state.lastStatus = "on"
+	}
+	else {
+		state.physical = false
+		state.lastStatus = "off"
+	}
+
 	if (lightSensor) {
 		subscribe(lightSensor, "illuminance", illuminanceHandler, [filterEvents: false])
 	}
@@ -98,14 +98,14 @@ def initialize() {
 
 def lightsOnHandler(evt) {
 	if (evt.isPhysical()) {
-    	state.physical = true
-    }
+		state.physical = true
+	}
 }
 
 def lightsOffHandler(evt) {
 //	if (evt.isPhysical()) {
-    	state.physical = false
-//    }
+		state.physical = false
+/	}
 }
  
 def switchHandler(evt) {
@@ -119,43 +119,43 @@ def switchHandler(evt) {
 				state.physical = true								// Manual on BEFORE motion on
 			}
 			else if (lastTwoStatesWere("on", recentStates, evt)) {
-               	log.debug "detected two taps, override motion"
-           		state.physical = true								// Manual override of PRIOR motion on
+			   	log.debug "detected two taps, override motion"
+		   		state.physical = true								// Manual override of PRIOR motion on
 			}
-        } 
-        else if (evt.value == "off") {
-        	state.physical = false									// Somebody turned off the light
-        	if (lastTwoStatesWere("off", recentStates, evt)) {
-            	log.debug "detected two taps, shutting off"
-            														// Double tap means "Keep off until..."
-        	}
-        }
+		} 
+		else if (evt.value == "off") {
+			state.physical = false									// Somebody turned off the light
+			if (lastTwoStatesWere("off", recentStates, evt)) {
+				log.debug "detected two taps, shutting off"
+																	// Double tap means "Keep off until..."
+			}
+		}
 	}
 }
 
 private lastTwoStatesWere(value, states, evt) {
-    def result = false
-    if (states) {
-        log.trace "unfiltered: [${states.collect{it.dateCreated + ':' + it.value}.join(', ')}]"
-        def onOff = states.findAll { it.isPhysical() || !it.type }
-        log.trace "filtered:   [${onOff.collect{it.dateCreated + ':' + it.value}.join(', ')}]"
+	def result = false
+	if (states) {
+		log.trace "unfiltered: [${states.collect{it.dateCreated + ':' + it.value}.join(', ')}]"
+		def onOff = states.findAll { it.isPhysical() || !it.type }
+		log.trace "filtered:   [${onOff.collect{it.dateCreated + ':' + it.value}.join(', ')}]"
 
-        // This test was needed before the change to use Event rather than DeviceState. It should never pass now.
-        if (onOff[0].date.before(evt.date)) {
-            log.warn "Last state does not reflect current event, evt.date: ${evt.dateCreated}, state.date: ${onOff[0].dateCreated}"
-            result = evt.value == value && onOff[0].value == value
-        }
-        else {
-            result = onOff.size() > 1 && onOff[0].value == value && onOff[1].value == value
-        }
-    }
-    result
+		// This test was needed before the change to use Event rather than DeviceState. It should never pass now.
+		if (onOff[0].date.before(evt.date)) {
+			log.warn "Last state does not reflect current event, evt.date: ${evt.dateCreated}, state.date: ${onOff[0].dateCreated}"
+			result = evt.value == value && onOff[0].value == value
+		}
+		else {
+			result = onOff.size() > 1 && onOff[0].value == value && onOff[1].value == value
+		}
+	}
+	result
 }
 
 def motionHandler(evt) {
 	log.debug "$evt.name: $evt.value"
-    
-    if (state.physical) { return}	// ignore motion if lights were most recently turned on manually
+
+	if (state.physical) { return}	// ignore motion if lights were most recently turned on manually
 
 	if (evt.value == "active") {
 		if (enabled()) {
@@ -182,11 +182,11 @@ def illuminanceHandler(evt) {
 	if (lastStatus != "off" && evt.integerValue > 50) {	// whether or not it was manually turned on
 		light.off()
 		state.lastStatus = "off"
-        state.physical = false
+		state.physical = false
 	}
 	else if (state.motionStopTime) {
-    	if (state.physical) { return }					// light was manually turned on
-        
+		if (state.physical) { return }					// light was manually turned on
+
 		if (lastStatus != "off") {
 			def elapsed = now() - state.motionStopTime
 			if (elapsed >= (delayMinutes ?: 0) * 60000L) {
@@ -197,17 +197,17 @@ def illuminanceHandler(evt) {
 	}
 	else if (lastStatus != "on" && evt.value < 30) {
 		if ( state.physical ) { return }				// light already manually on
-        light.on()
+		light.on()
 		state.lastStatus = "on"
-        state.physical = false							// we turned them on...
+		state.physical = false							// we turned them on...
 	}
 }
 
 def turnOffMotionAfterDelay() {
 	log.debug "In turnOffMotionAfterDelay"
-    
-    if (state.physical) { return }						// light was manually turned on
-    
+
+	if (state.physical) { return }						// light was manually turned on
+
 	if (state.motionStopTime && state.lastStatus != "off") {
 		def elapsed = now() - state.motionStopTime
 		if (elapsed >= (delayMinutes ?: 0) * 60000L) {
