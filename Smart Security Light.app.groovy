@@ -36,6 +36,7 @@ preferences {
 	}
 	section("Using either on this light sensor (optional) or the local sunrise and sunset"){
 		input "lightSensor", "capability.illuminanceMeasurement", required: false
+        input "luxLevel", "number", title: "Darkness Lux level?", defaultValue: 50, required: true
 	}
 	section ("Sunrise offset (optional)...") {
 		input "sunriseOffsetValue", "text", title: "HH:MM", required: false
@@ -50,17 +51,19 @@ preferences {
 	}
 	section ("Overrides") {
 		input "physicalOverride", "bool", title: "Physical override?", required: true, defaultValue: false
-		paragraph "Double-tap ON to lock light on; OFF to lock it off"
+		paragraph "Double-tap ON to lock light on"
         input "doubleTapOn", "bool", title: "Double-Tap ON override?", required: true, defaultValue: true
-		input "doubleTapOff", "bool", title: "Double-Tap OFF override?", required: true, defaultValue: true
+//		input "doubleTapOff", "bool", title: "Double-Tap OFF override?", required: true, defaultValue: true
 	}
 }
 
 def installed() {
+	log.debug "Installed with settings: $settings"
 	initialize()
 }
 
 def updated() {
+	log.debug "Updated with settings: $settings"
 	unsubscribe()
 	unschedule()
 	initialize()
@@ -121,17 +124,17 @@ def switchHandler(evt) {
 	if (evt.isPhysical()) {
 		if (evt.value == "on") {
 			if (state.lastStatus == "off") {
-				state.physical = true								// Manual on BEFORE motion on
+				if (physicalOverride) { state.physical = true }		// Manual on BEFORE motion on
 			}
 			else if (lastTwoStatesWere("on", recentStates, evt)) {
 			   	log.debug "detected two taps, override motion"
-		   		state.physical = true								// Manual override of PRIOR motion on
+		   		if (doubleTapOn) { state.physical = true }			// Manual override of PRIOR motion on
 			}
 		} 
 		else if (evt.value == "off") {
 			state.physical = false									// Somebody turned off the light
 			if (lastTwoStatesWere("off", recentStates, evt)) {
-				log.debug "detected two taps, shutting off"
+				log.debug "detected two taps, doing nothing"
 																	// Double tap means "Keep off until..."
 			}
 		}
@@ -160,7 +163,7 @@ private lastTwoStatesWere(value, states, evt) {
 def motionHandler(evt) {
 	log.debug "motionHandler: $evt.name: $evt.value"
 
-	if (state.physical) { return}	// ignore motion if lights were most recently turned on manually
+	if (state.physical) { return }	// ignore motion if lights were most recently turned on manually
 
 	if (evt.value == "active") {
 		if (enabled()) {
@@ -185,7 +188,7 @@ def illuminanceHandler(evt) {
 	log.debug "$evt.name: $evt.value, lastStatus: $state.lastStatus, motionStopTime: $state.motionStopTime"
 
 	def lastStatus = state.lastStatus					// its getting light now, we can turn off
-	if (lastStatus != "off" && evt.integerValue > 50) {	// whether or not it was manually turned on
+	if ((lastStatus != "off") && (evt.integerValue >= luxLevel)) {	// whether or not it was manually turned on
 		light.off()
 		state.lastStatus = "off"
 		state.physical = false
@@ -201,7 +204,7 @@ def illuminanceHandler(evt) {
 			}
 		}
 	}
-	else if (lastStatus != "on" && evt.value < 30) {
+	else if (lastStatus != "on" && evt.integerValue < luxLevel) {
 		if ( state.physical ) { return }				// light already manually on
 		light.on()
 		state.lastStatus = "on"
@@ -238,7 +241,7 @@ def astroCheck() {
 private enabled() {
 	def result
 	if (lightSensor) {
-		result = lightSensor.currentIlluminance < 30
+		result = (lightSensor.currentIlluminance as Integer) < luxLevel
 	}
 	else {
 		def t = now()
