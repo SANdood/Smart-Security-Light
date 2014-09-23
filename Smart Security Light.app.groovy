@@ -92,9 +92,9 @@ def lightsOnHandler(evt) {
 }
 
 def lightsOffHandler(evt) {
-	if (evt.isPhysical()) {
+//	if (evt.isPhysical()) {
     	state.physical = false
-    }
+//    }
 }
  
 
