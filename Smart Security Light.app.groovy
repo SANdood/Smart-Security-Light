@@ -127,14 +127,14 @@ def switchHandler(evt) {
 				if (physicalOverride) { state.physical = true }		// Manual on BEFORE motion on
 			}
 			else if (lastTwoStatesWere("on", recentStates, evt)) {
-			   	log.debug "detected two taps, override motion"
+			   	log.debug "detected two ON taps, override motion"
 		   		if (doubleTapOn) { state.physical = true }			// Manual override of PRIOR motion on
 			}
 		} 
 		else if (evt.value == "off") {
 			state.physical = false									// Somebody turned off the light
 			if (lastTwoStatesWere("off", recentStates, evt)) {
-				log.debug "detected two taps, doing nothing"
+				log.debug "detected two OFF taps, doing nothing"
 																	// Double tap means "Keep off until..."
 			}
 		}
