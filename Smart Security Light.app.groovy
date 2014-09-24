@@ -1,5 +1,5 @@
 /**
- *  Smart security Light
+ *  Smart Security Light
  *
  *  Author: SmartThings
  *
@@ -14,6 +14,8 @@
  *						* Double-tap OFF will keep the lights off until it gets light, someone manually
  *						  turns on or off the light, or another app turns on the lights.
  * 						* TO RE-ENABLE MOTION CONTROL: Manually turn OFF the lights (single tap)
+ *		2014/09/24		Re-enabled multi-motion detector support. Still only a single switch (for now).
+ *						Added option to flash the light to confirm double-tap overrides
  *
  *
  */
@@ -28,11 +30,11 @@ definition(
 )
 
 preferences {
-	section("Control these lights..."){
-		input "light", "capability.switch", multiple: false
+	section("Control this light..."){
+		input "light", "capability.switch", multiple: false, required: true
 	}
 	section("Turning on when it's dark and there's movement..."){
-		input "motionSensor", "capability.motionSensor", title: "Where?"
+		input "motionSensor", "capability.motionSensor", title: "Where?", multiple: true, required: true
 	}
 	section("And then off when it's light or there's been no movement for..."){
 		input "delayMinutes", "number", title: "Minutes?"
@@ -53,10 +55,13 @@ preferences {
 		input "zipCode", "text", required: false
 	}
 	section ("Overrides") {
+    	paragraph "Manual ON while lights are off disables motion control."
 		input "physicalOverride", "bool", title: "Physical override?", required: true, defaultValue: false
-		paragraph "Double-tap ON to lock light on"
+		paragraph "Double-tap ON to lock light on, OFF to lock light off (both disable motion control). Single-tap OFF to re-enable to motion-controlled."
         input "doubleTapOn", "bool", title: "Double-Tap ON override?", required: true, defaultValue: true
 		input "doubleTapOff", "bool", title: "Double-Tap OFF override?", required: true, defaultValue: true
+        paragraph ""
+        input "flashConfirm", "bool", title: "Flash lights to confirm overrides?", required: true, defaultValue: false
 	}
 }
 
@@ -133,7 +138,10 @@ def switchHandler(evt) {
 			}
 			else if (lastTwoStatesWere("on", recentStates, evt)) {
 			   	log.debug "detected two ON taps, override motion"
-		   		if (doubleTapOn) { state.physical = true }			// Manual override of PRIOR motion on
+		   		if (doubleTapOn) { 									// Manual override of PRIOR motion on
+					state.physical = true
+                    if (flashConfirm) { flashTheLight() }
+                }
 			}
 		} 
 		else if (evt.value == "off") {
@@ -141,7 +149,10 @@ def switchHandler(evt) {
 	        state.keepOff = false									// Single off resets keepOff
 			if (lastTwoStatesWere("off", recentStates, evt)) {
 				log.debug "detected two OFF taps, doing nothing"
-				if (doubleTapOff) { state.keepOff = true }			// Double tap enables the keepOff
+				if (doubleTapOff) { 								// Double tap enables the keepOff
+                	state.keepOff = true
+                    if (flashConfirm) { flashTheLight() }
+                }
             }
 		}
 	}
@@ -250,6 +261,41 @@ def astroCheck() {
 	state.riseTime = s.sunrise.time
 	state.setTime = s.sunset.time
 	log.debug "rise: ${new Date(state.riseTime)}($state.riseTime), set: ${new Date(state.setTime)}($state.setTime)"
+}
+
+private flashTheLight() {
+    def doFlash = true
+    def onFor = onFor ?: 200
+    def offFor = offFor ?: 200
+    def numFlashes = numFlashes ?: 2
+
+    if (state.lastActivated) {
+        def elapsed = now() - state.lastActivated
+        def sequenceTime = (numFlashes + 1) * (onFor + offFor)
+        doFlash = elapsed > sequenceTime
+    }
+
+    if (doFlash) {
+        state.lastActivated = now()
+        def initialActionOn = light.currentSwitch != "on"
+        def delay = 1L
+        numFlashes.times {
+            if (initialActionOn) {
+                light.on(delay: delay)
+            }
+            else {
+                light.off(delay:delay)
+            }
+            delay += onFor
+            if (initialActionOn) {
+                light.off(delay: delay)
+            }
+            else {
+                light.on(delay:delay)
+            }
+            delay += offFor
+        }
+    }
 }
 
 private enabled() {
