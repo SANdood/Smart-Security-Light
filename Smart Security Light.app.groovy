@@ -13,6 +13,7 @@
  *						* Double-tap ON will stop the motion-initiated timed Off event
  *						* Double-tap OFF will keep the lights off until it gets light, someone manually
  *						  turns on or off the light, or another app turns on the lights.
+ * 						* TO RE-ENABLE MOTION CONTROL: Manually turn OFF the lights (single tap)
  *
  *
  */
