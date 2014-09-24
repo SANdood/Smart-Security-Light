@@ -8,9 +8,11 @@
  *
  * Changes:
  *		2014/09/23		Added support for physical override:
- *						*	If lights turned on manually, don't turn them off if motion stops
- *														  but DO turn them off at sunrise (in case the are forgotten)
-  *						*	Double-tap ON will stop the motion-initiated timed Off event
+ *						* If lights turned on manually, don't turn them off if motion stops
+ *						  but DO turn them off at sunrise (in case the are forgotten)
+ *						* Double-tap ON will stop the motion-initiated timed Off event
+ *						* Double-tap OFF will keep the lights off until it gets light, someone manually
+ *						  turns on or off the light, or another app turns on the lights.
  *
  *
  */
@@ -53,7 +55,7 @@ preferences {
 		input "physicalOverride", "bool", title: "Physical override?", required: true, defaultValue: false
 		paragraph "Double-tap ON to lock light on"
         input "doubleTapOn", "bool", title: "Double-Tap ON override?", required: true, defaultValue: true
-//		input "doubleTapOff", "bool", title: "Double-Tap OFF override?", required: true, defaultValue: true
+		input "doubleTapOff", "bool", title: "Double-Tap OFF override?", required: true, defaultValue: true
 	}
 }
 
@@ -88,6 +90,7 @@ def initialize() {
 		state.physical = false
 		state.lastStatus = "off"
 	}
+    state.keepOff = false
 
 	if (lightSensor) {
 		subscribe(lightSensor, "illuminance", illuminanceHandler, [filterEvents: false])
@@ -106,13 +109,13 @@ def lightsOnHandler(evt) {
 	if (evt.isPhysical()) {
 		state.physical = true
 	}
+    state.keepOff = false					// If anything manages to turn the light on, stop the keepOff
 }
 
 def lightsOffHandler(evt) {
 	log.debug "lightsOffHandler: $evt.name: $evt.value"
-//	if (evt.isPhysical()) {
-		state.physical = false
-//	}
+	state.physical = false
+    state.lastStatus = "off"
 }
  
 def switchHandler(evt) {
@@ -123,6 +126,7 @@ def switchHandler(evt) {
 
 	if (evt.isPhysical()) {
 		if (evt.value == "on") {
+        	state.keepOff = false
 			if (state.lastStatus == "off") {
 				if (physicalOverride) { state.physical = true }		// Manual on BEFORE motion on
 			}
@@ -133,10 +137,11 @@ def switchHandler(evt) {
 		} 
 		else if (evt.value == "off") {
 			state.physical = false									// Somebody turned off the light
+	        state.keepOff = false									// Single off resets keepOff
 			if (lastTwoStatesWere("off", recentStates, evt)) {
 				log.debug "detected two OFF taps, doing nothing"
-																	// Double tap means "Keep off until..."
-			}
+				if (doubleTapOff) { state.keepOff = true }			// Double tap enables the keepOff
+            }
 		}
 	}
 }
@@ -174,6 +179,8 @@ def motionHandler(evt) {
 		state.motionStopTime = null
 	}
 	else {
+    	if (state.keepOff) { return }
+        
 		state.motionStopTime = now()
 		if(delayMinutes) {
 			unschedule(turnOffMotionAfterDelay)
@@ -188,10 +195,14 @@ def illuminanceHandler(evt) {
 	log.debug "$evt.name: $evt.value, lastStatus: $state.lastStatus, motionStopTime: $state.motionStopTime"
 
 	def lastStatus = state.lastStatus					// its getting light now, we can turn off
+    
+    if (state.keepOff && evt.integerValue >= luxLevel) { state.keepOff = false } // reset keepOff
+    
 	if ((lastStatus != "off") && (evt.integerValue >= luxLevel)) {	// whether or not it was manually turned on
 		light.off()
 		state.lastStatus = "off"
 		state.physical = false
+        state.keepOff = false							// it's a new day
 	}
 	else if (state.motionStopTime) {
 		if (state.physical) { return }					// light was manually turned on
@@ -201,11 +212,12 @@ def illuminanceHandler(evt) {
 			if (elapsed >= (delayMinutes ?: 0) * 60000L) {
 				light.off()
 				state.lastStatus = "off"
+                state.keepOff = false
 			}
 		}
 	}
 	else if (lastStatus != "on" && evt.integerValue < luxLevel) {
-		if ( state.physical ) { return }				// light already manually on
+        if ( state.keepOff ) { return }					// or we locked it off for the night
 		light.on()
 		state.lastStatus = "on"
 		state.physical = false							// we turned them on...
@@ -216,6 +228,7 @@ def turnOffMotionAfterDelay() {
 	log.debug "In turnOffMotionAfterDelay"
 
 	if (state.physical) { return }						// light was manually turned on
+    													// Don't turn it off
 
 	if (state.motionStopTime && state.lastStatus != "off") {
 		def elapsed = now() - state.motionStopTime
@@ -240,7 +253,11 @@ def astroCheck() {
 
 private enabled() {
 	def result
-	if (lightSensor) {
+    
+    if (state.keepOff) {
+    	result = false								// if OFF was double-tapped, don't turn on
+    }
+    else if (lightSensor) {
 		result = (lightSensor.currentIlluminance as Integer) < luxLevel
 	}
 	else {
