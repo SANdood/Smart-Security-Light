@@ -16,6 +16,7 @@
  * 						* TO RE-ENABLE MOTION CONTROL: Manually turn OFF the lights (single tap)
  *		2014/09/24		Re-enabled multi-motion detector support. Still only a single switch (for now).
  *						Added option to flash the light to confirm double-tap overrides
+ *						* Fixed the flasher resetting the overrides
  *
  *
  */
@@ -97,6 +98,7 @@ def initialize() {
 		state.lastStatus = "off"
 	}
     state.keepOff = false
+    state.flashing = false
 
 	if (lightSensor) {
 		subscribe(lightSensor, "illuminance", illuminanceHandler, [filterEvents: false])
@@ -111,6 +113,8 @@ def initialize() {
 }
 
 def lightsOnHandler(evt) {
+    if ( state.flashing ) { return }
+    
 	log.debug "lightsOnHandler: $evt.name: $evt.value"
 	if (evt.isPhysical()) {
 		state.physical = true
@@ -119,12 +123,16 @@ def lightsOnHandler(evt) {
 }
 
 def lightsOffHandler(evt) {
+    if ( state.flashing ) { return }
+    
 	log.debug "lightsOffHandler: $evt.name: $evt.value"
 	state.physical = false
     state.lastStatus = "off"
 }
  
 def switchHandler(evt) {
+    if ( state.flashing ) { return }
+    
 	log.debug "switchHandler: $evt.name: $evt.value"
 	// use Event rather than DeviceState because we may be changing DeviceState to only store changed values
 	def recentStates = light.eventsSince(new Date(now() - 4000), [all:true, max: 10]).findAll{it.name == "switch"}
@@ -137,21 +145,22 @@ def switchHandler(evt) {
 				if (physicalOverride) { state.physical = true }		// Manual on BEFORE motion on
 			}
 			else if (lastTwoStatesWere("on", recentStates, evt)) {
-			   	log.debug "detected two ON taps, override motion"
+			   	log.debug "detected two ON taps, override motion w/lights ON"
 		   		if (doubleTapOn) { 									// Manual override of PRIOR motion on
-					state.physical = true
                     if (flashConfirm) { flashTheLight() }
+                    state.physical = true							// have to set this AFTER we flash the lights :)
                 }
 			}
 		} 
 		else if (evt.value == "off") {
 			state.physical = false									// Somebody turned off the light
-	        state.keepOff = false									// Single off resets keepOff
+	        state.keepOff = false									// Single off resets keepOff & physical overrides
 			if (lastTwoStatesWere("off", recentStates, evt)) {
-				log.debug "detected two OFF taps, doing nothing"
+				log.debug "detected two OFF taps, override motion w/lights OFF"
 				if (doubleTapOff) { 								// Double tap enables the keepOff
-                	state.keepOff = true
-                    if (flashConfirm) { flashTheLight() }
+					unschedule("turnOffMotionAfterDelay")
+					if (flashConfirm) { flashTheLight() }
+                    state.keepOff = true							// Have to set this AFTER we flash the lights :)
                 }
             }
 		}
@@ -195,8 +204,8 @@ def motionHandler(evt) {
         
 		state.motionStopTime = now()
 		if(delayMinutes) {
-			unschedule(turnOffMotionAfterDelay)
-			runIn(delayMinutes*60, turnOffMotionAfterDelay, [overwrite: false])
+			unschedule("turnOffMotionAfterDelay")
+			runIn(delayMinutes*60, "turnOffMotionAfterDelay", [overwrite: false])
 		} else {
 			turnOffMotionAfterDelay()
 		}
@@ -204,6 +213,8 @@ def motionHandler(evt) {
 }
 
 def illuminanceHandler(evt) {
+    if ( state.flashing ) { return }
+    
 	log.debug "$evt.name: $evt.value, lastStatus: $state.lastStatus, motionStopTime: $state.motionStopTime"
 
 	def lastStatus = state.lastStatus					// its getting light now, we can turn off
@@ -268,6 +279,8 @@ private flashTheLight() {
     def onFor = onFor ?: 200
     def offFor = offFor ?: 200
     def numFlashes = numFlashes ?: 2
+    
+    state.flashing = true
 
     if (state.lastActivated) {
         def elapsed = now() - state.lastActivated
@@ -296,12 +309,13 @@ private flashTheLight() {
             delay += offFor
         }
     }
+    state.flashing = false
 }
 
 private enabled() {
 	def result
     
-    if (state.keepOff) {
+    if (state.keepOff || state.flashing) {
     	result = false								// if OFF was double-tapped, don't turn on
     }
     else if (lightSensor) {
