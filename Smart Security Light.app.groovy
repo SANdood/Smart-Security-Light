@@ -61,10 +61,10 @@ preferences {
 		input "zipCode", "text", required: false
 	}
 	section ("Overrides") {
-    	paragraph "Manual ON while lights are off disables motion control."
+    	paragraph "Manual ON disables motion control. Manual OFF enables motion control."
 		input "physicalOverride", "bool", title: "Physical override?", required: true, defaultValue: false
-		paragraph "Double-tap ON to lock light on, OFF to lock light off (both disable motion control). Single-tap OFF to re-enable to motion-controlled."
-        input "doubleTapOn", "bool", title: "Double-Tap ON override?", required: true, defaultValue: true
+		paragraph "Double-tap OFF to lock light off until next ON or sunrise. Single-tap OFF to re-enable to motion-controlled."
+//        input "doubleTapOn", "bool", title: "Double-Tap ON override?", required: true, defaultValue: true
 		input "doubleTapOff", "bool", title: "Double-Tap OFF override?", required: true, defaultValue: true
         paragraph ""
         input "flashConfirm", "bool", title: "Flash lights to confirm overrides?", required: true, defaultValue: false
@@ -143,15 +143,12 @@ def switchHandler(evt) {
 
 	if (evt.isPhysical()) {
 		if (evt.value == "on") {
-        	state.keepOff = false
-			if (state.lastStatus == "off") {  // treat ON while on = ON while off
-				if (physicalOverride) { state.physical = true }		// Manual on BEFORE motion on
-			}
-			else if (doubleTapOn && lastTwoStatesWere("on", recentStates, evt)) {
-			   	log.debug "detected two ON taps, override motion w/lights ON"
-	        	if (delayMinutes) { unschedule ("turnOffMotionAfterDelay") }
-                if (flashConfirm) { flashTheLight() }
-                state.physical = true							// have to set this AFTER we flash the lights :)
+        	log.debug "Override ON, disabling motion-control"
+        	if (physicalOverride) {
+            	state.keepOff = false
+        		if (delayMinutes) { unschedule ("turnOffMotionAfterDelay") }
+            	if (flashConfirm) { flashTheLight() }
+            	state.physical = true							// have to set this AFTER we flash the lights :)
 			}
 		} 
 		else if (evt.value == "off") {
