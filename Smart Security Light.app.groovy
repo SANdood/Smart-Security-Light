@@ -17,6 +17,11 @@
  *		2014/09/24		Re-enabled multi-motion detector support. Still only a single switch (for now).
  *						Added option to flash the light to confirm double-tap overrides
  *						* Fixed the flasher resetting the overrides
+ *		2014/09/25		More work fixing up overrides. New operation mode:
+ *						* Manual ON any time overrides motion until next OFF (manual or programmatic)
+ *						* Manual OFF resets to motion-controlled
+ *						* Double-tap manual OFF turns lights off until next reset (ON or OFF) or tomorrow morning
+ *						  (light or sunrise-driven)
  *
  *
  */
@@ -116,9 +121,7 @@ def lightsOnHandler(evt) {
     if ( state.flashing ) { return }
     
 	log.debug "lightsOnHandler: $evt.name: $evt.value"
-	if (evt.isPhysical()) {
-		state.physical = true
-	}
+	if (evt.isPhysical()) { state.physical = true }
     state.keepOff = false					// If anything manages to turn the light on, stop the keepOff
 }
 
@@ -141,15 +144,14 @@ def switchHandler(evt) {
 	if (evt.isPhysical()) {
 		if (evt.value == "on") {
         	state.keepOff = false
-			if (state.lastStatus == "off") {
+			if (state.lastStatus == "off") {  // treat ON while on = ON while off
 				if (physicalOverride) { state.physical = true }		// Manual on BEFORE motion on
 			}
-			else if (lastTwoStatesWere("on", recentStates, evt)) {
+			else if (doubleTapOn && lastTwoStatesWere("on", recentStates, evt)) {
 			   	log.debug "detected two ON taps, override motion w/lights ON"
-		   		if (doubleTapOn) { 									// Manual override of PRIOR motion on
-                    if (flashConfirm) { flashTheLight() }
-                    state.physical = true							// have to set this AFTER we flash the lights :)
-                }
+	        	if (delayMinutes) { unschedule ("turnOffMotionAfterDelay") }
+                if (flashConfirm) { flashTheLight() }
+                state.physical = true							// have to set this AFTER we flash the lights :)
 			}
 		} 
 		else if (evt.value == "off") {
@@ -200,11 +202,14 @@ def motionHandler(evt) {
 		state.motionStopTime = null
 	}
 	else {
-    	if (state.keepOff) { return }
+    	if (state.keepOff) {
+        	if (delayMinutes) { unschedule("turnOffMotionAfterDelay") }
+        	return 
+        }
         
 		state.motionStopTime = now()
 		if(delayMinutes) {
-			unschedule("turnOffMotionAfterDelay")
+			unschedule("turnOffMotionAfterDelay")				// This should replace any existing off schedule
 			runIn(delayMinutes*60, "turnOffMotionAfterDelay", [overwrite: false])
 		} else {
 			turnOffMotionAfterDelay()
@@ -240,17 +245,20 @@ def illuminanceHandler(evt) {
 		}
 	}
 	else if (lastStatus != "on" && evt.integerValue < luxLevel) {
-        if ( state.keepOff ) { return }					// or we locked it off for the night
+        if ( state.keepOff || state.physical ) { return }					// or we locked it off for the night
 		light.on()
 		state.lastStatus = "on"
-		state.physical = false							// we turned them on...
+//		state.physical = false							// we turned them on...
 	}
 }
 
 def turnOffMotionAfterDelay() {
 	log.debug "In turnOffMotionAfterDelay"
 
-	if (state.physical) { return }						// light was manually turned on
+    if (state.keepOff) {
+        if (delayMinutes) { unschedule("turnOffMotionAfterDelay") }
+        return 
+    }						// light was manually turned on
     													// Don't turn it off
 
 	if (state.motionStopTime && state.lastStatus != "off") {
