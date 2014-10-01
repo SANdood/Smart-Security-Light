@@ -24,6 +24,9 @@
  *						  (light or sunrise-driven)
  *		2014/09/26		Code clean up around overrides. Single ON tap always disables motion; OFF tap re-enables
  *						motion. Double-OFF stops motion until tomorrow (light/sunrise)
+ *		2014/09/30		Replaced evt.isPhysical() with evt.physical
+ *						switched to atomicState.xxx to fix some timing-related errors
+ *						BUG: Occaisionally will flash lights when manually turned ON from OFF state
  *
  *
  */
@@ -95,16 +98,16 @@ def initialize() {
 		subscribe(light, "switch", switchHandler, [filterEvents: false])
 	}
 
-	if (light.latestValue( "switch" ) == "on") {
-		state.physical = true
-		state.lastStatus = "on"
+	if (light.currentSwitch == "on") {
+		atomicState.physicalSwitch = true
+		atomicState.lastStatus = "on"
 	}
 	else {
-		state.physical = false
-		state.lastStatus = "off"
+		atomicState.physicalSwitch = false
+		atomicState.lastStatus = "off"
 	}
-    state.keepOff = false
-    state.flashing = false
+    atomicState.keepOff = false
+    atomicState.flashing = false
 
 	if (lightSensor) {
 		subscribe(lightSensor, "illuminance", illuminanceHandler, [filterEvents: false])
@@ -118,38 +121,41 @@ def initialize() {
 	}
 }
 
-def lightsOnHandler(evt) {				// if ANYTHING (besides me) turns ON the light, then exit "keepOff" mode
-    if ( state.flashing ) { return }
+def lightsOnHandler(evt) {				
+    if ( atomicState.flashing ) { return }
+    log.debug "OnHandler isPhys $evt.physical"
     
-    state.keepOff = false
+    atomicState.keepOff = false				// if ANYTHING turns ON the light, then exit "keepOff" mode
+    if (!evt.physical) { atomicState.lastStatus = "on" } // somebody turn on the lights
 }
 
 def lightsOffHandler(evt) {				// if anything turns OFF the light, then reset to motion-controlled
-    if ( state.flashing ) { return }
+    if ( atomicState.flashing ) { return }
+    log.debug "offHandler isPhys $evt.physical"
     
-	state.physical = false
-    state.lastStatus = "off"
+	atomicState.physicalSwitch = false
+    atomicState.lastStatus = "off"
 }
  
 def switchHandler(evt) {
-    if ( state.flashing ) { return }
-    
-	log.debug "switchHandler: $evt.name: $evt.value"
+    if ( atomicState.flashing ) { return }
+   
+	log.debug "switchHandler: $evt.name: $evt.value isPhys $evt.physical"
 
-	if (evt.isPhysical()) {
+	if (evt.physical) {
 		if (evt.value == "on") {
-
         	if (physicalOverride) {
                 log.debug "Override ON, disabling motion-control"
-            	state.keepOff = false
+            	atomicState.keepOff = false
         		if (delayMinutes) { unschedule ("turnOffMotionAfterDelay") }
-            	if (flashConfirm) { flashTheLight() }
-            	state.physical = true							// have to set this AFTER we flash the lights :)
+            	if (atomicState.lastStatus == "on" && flashConfirm) { flashTheLight() }
+                atomicState.lastStatus = "on"
+            	atomicState.physicalSwitch = true						// have to set this AFTER we flash the lights :)
 			}
 		} 
 		else if (evt.value == "off") {
-			state.physical = false									// Somebody physically turned off the light
-	        state.keepOff = false									// Single off resets keepOff & physical overrides
+			atomicState.physicalSwitch = false							// Somebody physically turned off the light
+	        atomicState.keepOff = false									// Single off resets keepOff & physical overrides
 
 			// use Event rather than DeviceState because we may be changing DeviceState to only store changed values
 			def recentStates = light.eventsSince(new Date(now() - 4000), [all:true, max: 10]).findAll{it.name == "switch"}
@@ -158,10 +164,10 @@ def switchHandler(evt) {
 			if (lastTwoStatesWere("off", recentStates, evt)) {
 				log.debug "detected two OFF taps, override motion w/lights OFF"
                 
-				if (doubleTapOff) { 								// Double tap enables the keepOff
+				if (doubleTapOff) { 									// Double tap enables the keepOff
 					if (delayMinutes) { unschedule("turnOffMotionAfterDelay") }
 					if (flashConfirm) { flashTheLight() }
-                    state.keepOff = true							// Have to set this AFTER we flash the lights :)
+                    atomicState.keepOff = true							// Have to set this AFTER we flash the lights :)
                 }
             }
 		}
@@ -172,7 +178,7 @@ private lastTwoStatesWere(value, states, evt) {
 	def result = false
 	if (states) {
 		log.trace "unfiltered: [${states.collect{it.dateCreated + ':' + it.value}.join(', ')}]"
-		def onOff = states.findAll { it.isPhysical() || !it.type }
+		def onOff = states.findAll { it.physical || !it.type }
 		log.trace "filtered:   [${onOff.collect{it.dateCreated + ':' + it.value}.join(', ')}]"
 
 		// This test was needed before the change to use Event rather than DeviceState. It should never pass now.
@@ -190,23 +196,23 @@ private lastTwoStatesWere(value, states, evt) {
 def motionHandler(evt) {
 	log.debug "motionHandler: $evt.name: $evt.value"
 
-	if (state.physical) { return }	// ignore motion if lights were most recently turned on manually
+	if (atomicState.physicalSwitch) { return }	// ignore motion if lights were most recently turned on manually
 
 	if (evt.value == "active") {
 		if (enabled()) {
 			log.debug "turning on light due to motion"
 			light.on()
-			state.lastStatus = "on"
+			atomicState.lastStatus = "on"
 		}
-		state.motionStopTime = null
+		atomicState.motionStopTime = null
 	}
 	else {
-    	if (state.keepOff) {
+    	if (atomicState.keepOff) {
         	if (delayMinutes) { unschedule("turnOffMotionAfterDelay") }
         	return 
         }
         
-		state.motionStopTime = now()
+		atomicState.motionStopTime = now()
 		if(delayMinutes) {
 			unschedule("turnOffMotionAfterDelay")				// This should replace any existing off schedule
 			runIn(delayMinutes*60, "turnOffMotionAfterDelay", [overwrite: false])
@@ -217,53 +223,53 @@ def motionHandler(evt) {
 }
 
 def illuminanceHandler(evt) {
-    if ( state.flashing ) { return }
+    if ( atomicState.flashing ) { return }
     
-	log.debug "$evt.name: $evt.value, lastStatus: $state.lastStatus, motionStopTime: $state.motionStopTime"
+	log.debug "$evt.name: $evt.value, lastStatus: $atomicState.lastStatus, motionStopTime: $atomicState.motionStopTime"
 
-	def lastStatus = state.lastStatus					// its getting light now, we can turn off
+	def lastStatus = atomicState.lastStatus					// its getting light now, we can turn off
     
-    if (state.keepOff && evt.integerValue >= luxLevel) { state.keepOff = false } // reset keepOff
+    if (atomicState.keepOff && evt.integerValue >= luxLevel) { atomicState.keepOff = false } // reset keepOff
     
 	if ((lastStatus != "off") && (evt.integerValue >= luxLevel)) {	// whether or not it was manually turned on
 		light.off()
-		state.lastStatus = "off"
-		state.physical = false
-        state.keepOff = false							// it's a new day
+		atomicState.lastStatus = "off"
+		atomicState.physicalSwitch = false
+        atomicState.keepOff = false							// it's a new day
 	}
-	else if (state.motionStopTime) {
-		if (state.physical) { return }					// light was manually turned on
+	else if (atomicState.motionStopTime) {
+		if (atomicState.physicalSwitch) { return }					// light was manually turned on
 
 		if (lastStatus != "off") {
-			def elapsed = now() - state.motionStopTime
+			def elapsed = now() - atomicState.motionStopTime
 			if (elapsed >= (delayMinutes ?: 0) * 60000L) {
 				light.off()
-				state.lastStatus = "off"
-                state.keepOff = false
+				atomicState.lastStatus = "off"
+                atomicState.keepOff = false
 			}
 		}
 	}
 	else if (lastStatus != "on" && evt.integerValue < luxLevel) {
-        if ( state.keepOff || state.physical ) { return }					// or we locked it off for the night
+        if ( atomicState.keepOff || atomicState.physicalSwitch ) { return }					// or we locked it off for the night
 		light.on()
-		state.lastStatus = "on"
+		atomicState.lastStatus = "on"
 	}
 }
 
 def turnOffMotionAfterDelay() {
 	log.debug "In turnOffMotionAfterDelay"
 
-    if (state.keepOff) {
+    if (atomicState.keepOff) {
         if (delayMinutes) { unschedule("turnOffMotionAfterDelay") }
         return 
     }						// light was manually turned on
     													// Don't turn it off
 
-	if (state.motionStopTime && state.lastStatus != "off") {
-		def elapsed = now() - state.motionStopTime
+	if (atomicState.motionStopTime && atomicState.lastStatus != "off") {
+		def elapsed = now() - atomicState.motionStopTime
 		if (elapsed >= (delayMinutes ?: 0) * 60000L) {
 			light.off()
-			state.lastStatus = "off"
+			atomicState.lastStatus = "off"
 		}
 	}
 }
@@ -282,20 +288,20 @@ def astroCheck() {
 
 private flashTheLight() {
     def doFlash = true
-    def onFor = onFor ?: 200
-    def offFor = offFor ?: 200
+    def onFor = onFor ?: 500
+    def offFor = offFor ?: 500
     def numFlashes = numFlashes ?: 2
     
-    state.flashing = true
+    atomicState.flashing = true
 
-    if (state.lastActivated) {
-        def elapsed = now() - state.lastActivated
+    if (atomicState.lastActivated) {
+        def elapsed = now() - atomicState.lastActivated
         def sequenceTime = (numFlashes + 1) * (onFor + offFor)
         doFlash = elapsed > sequenceTime
     }
 
     if (doFlash) {
-        state.lastActivated = now()
+        atomicState.lastActivated = now()
         def initialActionOn = light.currentSwitch != "on"
         def delay = 1L
         numFlashes.times {
@@ -310,22 +316,23 @@ private flashTheLight() {
                 light.off(delay: delay)
             }
             else {
-                light.on(delay:delay)
+                light.on(delay: delay)
             }
             delay += offFor
         }
     }
-    state.flashing = false
+    atomicState.lastActivated = ""
+    atomicState.flashing = false
 }
 
 private enabled() {
 	def result
     
-    if (state.keepOff || state.flashing) {
+    if (atomicState.keepOff || atomicState.flashing) {
     	result = false								// if OFF was double-tapped, don't turn on
     }
     else if (lightSensor) {
-		result = (lightSensor.currentIlluminance as Integer) < luxLevel
+		result = (lightSensor.currentIlluminance < luxLevel)
 	}
 	else {
 		def t = now()
