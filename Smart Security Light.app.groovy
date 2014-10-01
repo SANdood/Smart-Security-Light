@@ -321,7 +321,7 @@ private flashTheLight() {
             delay += offFor
         }
     }
-    atomicState.lastActivated = ""
+//    atomicState.lastActivated = ""
     atomicState.flashing = false
 }
 
