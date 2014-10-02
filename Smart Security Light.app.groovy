@@ -126,7 +126,10 @@ def lightsOnHandler(evt) {
     log.debug "OnHandler isPhys $evt.physical"
     
     atomicState.keepOff = false				// if ANYTHING turns ON the light, then exit "keepOff" mode
-    if (!evt.physical) { atomicState.lastStatus = "on" } // somebody turn on the lights
+    if (!evt.physical) { 
+    	atomicState.lastStatus = "on"
+        atomicState.physicalSwitch = false
+    } // somebody turn on the lights
 }
 
 def lightsOffHandler(evt) {				// if anything turns OFF the light, then reset to motion-controlled
