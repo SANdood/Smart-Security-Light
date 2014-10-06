@@ -94,7 +94,7 @@ def initialize() {
 		subscribe(light, "switch.on", lightsOnHandler)
 		subscribe(light, "switch.off", lightsOffHandler)
 	}
-	if (doubleTapOn || doubleTapOff) {
+	if (physicalOverride || doubleTapOff) {
 		subscribe(light, "switch", switchHandler, [filterEvents: false])
 	}
 
@@ -219,7 +219,8 @@ def motionHandler(evt) {
 		if(delayMinutes) {
 			unschedule("turnOffMotionAfterDelay")				// This should replace any existing off schedule
 			runIn(delayMinutes*60, "turnOffMotionAfterDelay", [overwrite: false])
-		} else {
+		} 
+		else {
 			turnOffMotionAfterDelay()
 		}
 	}
